@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GraphRAG</title>
+    <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #mynetwork {
+            width: 100%;
+            height: 400px;
+            border: 1px solid lightgray;
+            margin-bottom: 20px;
+        }
+        .error {
+            color: red;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            margin-bottom: 10px;
+        }
+        button {
+            margin-bottom: 10px;
+        }
+        #result {
+            white-space: pre-wrap;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>GraphRAG</h1>
+    <input type="file" id="fileInput" multiple>
+    <button onclick="uploadFiles()">Upload</button>
+    <div id="uploadStatus"></div>
+    <div id="mynetwork"></div>
+    <textarea id="queryInput" placeholder="Enter your query"></textarea>
+    <button onclick="submitQuery()">Submit Query</button>
+    <div id="result"></div>
+
+    <script>
+        async function uploadFiles() {
+            const fileInput = document.getElementById('fileInput');
+            const formData = new FormData();
+            const uploadStatus = document.getElementById('uploadStatus');
+            
+            for (const file of fileInput.files) {
+                formData.append('file', file);
+            }
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                console.log(result);
+                
+                if (response.ok) {
+                    uploadStatus.textContent = `File ${result.filename} uploaded and processed successfully.`;
+                    uploadStatus.className = '';
+                    // After upload, fetch and display the graph
+                    fetchGraph();
+                } else {
+                    uploadStatus.textContent = `Error: ${result.detail}`;
+                    uploadStatus.className = 'error';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                uploadStatus.textContent = `Error: ${error.message}`;
+                uploadStatus.className = 'error';
+            }
+        }
+
+        async function fetchGraph() {
+            try {
+                const response = await fetch('/graph');
+                const graph = await response.json();
+                
+                const nodes = new vis.DataSet(graph.nodes.map(node => ({
+                    id: node.id,
+                    label: node.label,
+                    title: node.label  // This adds a tooltip on hover
+                })));
+                
+                const edges = new vis.DataSet(graph.links.map(edge => ({
+                    from: edge.source,
+                    to: edge.target,
+                    label: edge.label,
+                    arrows: 'to'
+                })));
+
+                const container = document.getElementById('mynetwork');
+                const data = { nodes, edges };
+                const options = {
+                    nodes: {
+                        shape: 'circle',
+                        size: 25,
+                        font: {
+                            size: 12,
+                            face: 'Tahoma'
+                        },
+                        borderWidth: 2,
+                        shadow: true
+                    },
+                    edges: {
+                        width: 2,
+                        font: {
+                            size: 10,
+                            align: 'middle'
+                        },
+                        color: { color: 'lightgray', highlight: 'gray' },
+                        smooth: { type: 'continuous' }
+                    },
+                    physics: {
+                        enabled: true,
+                        barnesHut: {
+                            gravitationalConstant: -2000,
+                            centralGravity: 0.3,
+                            springLength: 150,
+                            springConstant: 0.04,
+                            damping: 0.09,
+                            avoidOverlap: 0.1
+                        }
+                    },
+                    interaction: {
+                        hover: true,
+                        tooltipDelay: 200
+                    }
+                };
+                new vis.Network(container, data, options);
+            } catch (error) {
+                console.error('Error fetching graph:', error);
+            }
+        }
+
+        async function submitQuery() {
+            const query = document.getElementById('queryInput').value;
+            const resultDiv = document.getElementById('result');
+            
+            try {
+                const response = await fetch('/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ query: query })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.textContent = result.result;
+                    resultDiv.className = '';
+                } else {
+                    resultDiv.textContent = `Error: ${result.detail}`;
+                    resultDiv.className = 'error';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                resultDiv.textContent = `Error: ${error.message}`;
+                resultDiv.className = 'error';
+            }
+        }
+    </script>
+</body>
+</html>
