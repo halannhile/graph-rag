@@ -4,173 +4,204 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GraphRAG</title>
-    <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.js"></script>
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
         #mynetwork {
             width: 100%;
             height: 400px;
             border: 1px solid lightgray;
-            margin-bottom: 20px;
-        }
-        .error {
-            color: red;
-        }
-        textarea {
-            width: 100%;
-            height: 100px;
-            margin-bottom: 10px;
-        }
-        button {
-            margin-bottom: 10px;
-        }
-        #result {
-            white-space: pre-wrap;
-            border: 1px solid #ccc;
-            padding: 10px;
-            margin-top: 10px;
         }
     </style>
 </head>
 <body>
     <h1>GraphRAG</h1>
-    <input type="file" id="fileInput" multiple>
+    
+    <h2>Upload Documents</h2>
+    <input type="file" id="fileInput" accept=".txt,.pdf" multiple>
     <button onclick="uploadFiles()">Upload</button>
     <div id="uploadStatus"></div>
-    <div id="mynetwork"></div>
-    <textarea id="queryInput" placeholder="Enter your query"></textarea>
+    <button onclick="finalizeGraph()">Finalize Graph</button>
+    <div id="graphStatus"></div>
+
+    <h2>Graph Visualization</h2>
+    <div id="mynetwork" style="width: 100%; height: 400px;"></div>
+
+    <h2>Query</h2>
+    <input type="text" id="queryInput" placeholder="Enter your query">
     <button onclick="submitQuery()">Submit Query</button>
     <div id="result"></div>
 
     <script>
-        async function uploadFiles() {
+        function uploadFiles() {
             const fileInput = document.getElementById('fileInput');
-            const formData = new FormData();
+            const files = fileInput.files;
             const uploadStatus = document.getElementById('uploadStatus');
-            
-            for (const file of fileInput.files) {
-                formData.append('file', file);
-            }
+            uploadStatus.innerHTML = '';
 
-            try {
-                const response = await fetch('/upload', {
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const formData = new FormData();
+                formData.append('file', file);
+
+                fetch('/upload', {
                     method: 'POST',
                     body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    uploadStatus.innerHTML += `<p>File ${data.filename} processed successfully</p>`;
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    uploadStatus.innerHTML += `<p>Error uploading file ${file.name}</p>`;
                 });
-
-                const result = await response.json();
-                console.log(result);
-                
-                if (response.ok) {
-                    uploadStatus.textContent = `File ${result.filename} uploaded and processed successfully.`;
-                    uploadStatus.className = '';
-                    // After upload, fetch and display the graph
-                    fetchGraph();
-                } else {
-                    uploadStatus.textContent = `Error: ${result.detail}`;
-                    uploadStatus.className = 'error';
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                uploadStatus.textContent = `Error: ${error.message}`;
-                uploadStatus.className = 'error';
             }
         }
 
-        async function fetchGraph() {
-            try {
-                const response = await fetch('/graph');
-                const graph = await response.json();
-                
-                const nodes = new vis.DataSet(graph.nodes.map(node => ({
-                    id: node.id,
-                    label: node.label,
-                    title: node.label  // This adds a tooltip on hover
-                })));
-                
-                const edges = new vis.DataSet(graph.links.map(edge => ({
-                    from: edge.source,
-                    to: edge.target,
-                    label: edge.label,
-                    arrows: 'to'
-                })));
+        function finalizeGraph() {
+            fetch('/finalize_graph', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('graphStatus').innerHTML = `<p>${data.status}</p>`;
+                pollGraphStatus();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('graphStatus').innerHTML = '<p>Error finalizing graph</p>';
+            });
+        }
 
-                const container = document.getElementById('mynetwork');
-                const data = { nodes, edges };
-                const options = {
-                    nodes: {
-                        shape: 'circle',
-                        size: 25,
-                        font: {
-                            size: 12,
-                            face: 'Tahoma'
-                        },
-                        borderWidth: 2,
-                        shadow: true
-                    },
-                    edges: {
-                        width: 2,
-                        font: {
-                            size: 10,
-                            align: 'middle'
-                        },
-                        color: { color: 'lightgray', highlight: 'gray' },
-                        smooth: { type: 'continuous' }
-                    },
-                    physics: {
-                        enabled: true,
-                        barnesHut: {
-                            gravitationalConstant: -2000,
-                            centralGravity: 0.3,
-                            springLength: 150,
-                            springConstant: 0.04,
-                            damping: 0.09,
-                            avoidOverlap: 0.1
+        function pollGraphStatus() {
+            const statusElement = document.getElementById('graphStatus');
+            const intervalId = setInterval(() => {
+                fetch('/graph_status')
+                    .then(response => response.json())
+                    .then(data => {
+                        statusElement.innerText = `Graph Status: ${data.status}, Progress: ${data.progress}%, Message: ${data.message}`;
+                        if (data.status === 'Completed') {
+                            clearInterval(intervalId);
+                            fetchGraph();
+                        } else if (data.status === 'Error') {
+                            clearInterval(intervalId);
+                            statusElement.innerText += ' Error occurred while finalizing graph.';
                         }
-                    },
-                    interaction: {
-                        hover: true,
-                        tooltipDelay: 200
-                    }
-                };
-                new vis.Network(container, data, options);
-            } catch (error) {
-                console.error('Error fetching graph:', error);
-            }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        clearInterval(intervalId);
+                        statusElement.innerText = 'Error checking graph status';
+                    });
+            }, 2000); // Check every 2 seconds
         }
 
-        async function submitQuery() {
-            const query = document.getElementById('queryInput').value;
-            const resultDiv = document.getElementById('result');
-            
-            try {
-                const response = await fetch('/query', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ query: query })
-                });
+        function fetchGraph() {
+            console.log("Fetching graph data...");
+            fetch('/graph')
+            .then(response => response.json())
+            .then(data => {
+                console.log("Graph data received:", data);
+                drawGraph(data);
+            })
+            .catch(error => {
+                console.error('Error fetching graph:', error);
+            });
+        }
 
-                const result = await response.json();
-                
-                if (response.ok) {
-                    resultDiv.textContent = result.result;
-                    resultDiv.className = '';
-                } else {
-                    resultDiv.textContent = `Error: ${result.detail}`;
-                    resultDiv.className = 'error';
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                resultDiv.textContent = `Error: ${error.message}`;
-                resultDiv.className = 'error';
+        function drawGraph(data) {
+            console.log("Drawing graph with data:", data);
+            const container = document.getElementById('mynetwork');
+            
+            if (data.nodes.length === 0 && data.edges.length === 0) {
+                console.log("Graph data is empty");
+                container.innerHTML = "No graph data available.";
+                return;
             }
+
+            // Create nodes array
+            const nodes = new vis.DataSet(data.nodes.map(node => ({
+                id: node.id,
+                label: node.label || node.id,
+                title: node.title || node.label || node.id  // Hover text
+            })));
+
+            // Create edges array
+            const edges = new vis.DataSet(data.edges.map(edge => ({
+                from: edge.from,
+                to: edge.to,
+                label: edge.label || '',
+                arrows: 'to'  // Add arrows to show direction
+            })));
+
+            // Configuration options
+            const options = {
+                nodes: {
+                    shape: 'dot',
+                    size: 30,
+                    font: {
+                        size: 12,
+                        color: '#000000'
+                    },
+                    borderWidth: 2,
+                    shadow: true
+                },
+                edges: {
+                    width: 2,
+                    color: {color: '#5A5A5A', highlight: '#848484'},
+                    font: {
+                        size: 12,
+                        align: 'middle'
+                    },
+                    smooth: {type: 'continuous'}
+                },
+                physics: {
+                    stabilization: false,
+                    barnesHut: {
+                        gravitationalConstant: -80000,
+                        springConstant: 0.001,
+                        springLength: 200
+                    }
+                },
+                interaction: {
+                    navigationButtons: true,
+                    keyboard: true
+                }
+            };
+
+            // Create network
+            const network = new vis.Network(container, {nodes: nodes, edges: edges}, options);
+
+            // Add double click event to zoom on a node
+            network.on("doubleClick", function(params) {
+                if (params.nodes.length > 0) {
+                    network.focus(params.nodes[0], {
+                        scale: 1.2,
+                        animation: true
+                    });
+                }
+            });
+
+            console.log("Graph rendered successfully");
+        }
+
+        function submitQuery() {
+            const query = document.getElementById('queryInput').value;
+            fetch('/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ query: query })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('result').innerText = data.result;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('result').innerText = 'Error processing query';
+            });
         }
     </script>
 </body>
